@@ -247,6 +247,12 @@ gmt_update  更新时间
 
 ### varchar和char有什么区别
 
+1. varchar(n)和char(n)都是存储n个字符，超出则截断
+2. char存储时占用的空间始终是n个字符，varchar存储的是实际字符串长度加1-2个字节，后面两个字节保存字符串长度（如果是255长度以内，则一个字节，否则两个字节）
+3. char会对存入的字符串截取尾部空格，但varchar不会。
+
+
+
 ### null和""有什么区别
 
 ### 2.4 创建数据库表（重点）
@@ -705,8 +711,13 @@ select subjectName, avg(studentResult) as 平均分,max(studentResult) as 最高
 from result r
 inner join subject sub
 on r.subjectNo = sub.subjectNo
-group by r.subjectNo --通过什么字段来分
+group by r.subjectNo,r.xxx,r.xxxx --通过什么字段来分,可以有多个
 having 平均分>80; --一旦用了group by，就不能用where了，必须用having，否则会报错
+
+-- 例子：选择某个字段重复的数据的id
+select id from tablename group by field having count(field)>1
+--例子：选择某两个字段重复的数据id
+select id from tablename group by fie1,fie2 having count(*)>1 --实际上就是通过group by对结果分组，看分组中数据条数是否大于1
 ```
 
 ### 4.8 select小结

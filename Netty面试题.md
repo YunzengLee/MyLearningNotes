@@ -12,7 +12,41 @@
 
 阻塞调用是指调用结果返回之前，当前线程挂起。调用线程只有在结果返回之后才会返回。
 
-非阻塞调用指在不能立刻得到结果时，该调用不会阻塞当前线程。
+非阻塞调用指在不能立刻得到结果时，线程继续处理其他任务，该调用不会阻塞当前线程。
+
+## BIO NIO IO多路复用 AIO的区别
+
+[这篇文章](https://www.cnblogs.com/zingp/p/6863170.html)讲得很好。
+
+对于一次IO访问，数据先拷贝到操作系统内核的缓冲区中，然后才会从操作系统的内核缓冲区拷贝到应用程序的缓冲区，最后交给进程。因此包含两个阶段：1. 等待数据准备；2. 将数据从内核拷贝到进程中。
+
+### BIO
+
+1. 用户进程向操作系统内核发起IO请求
+2. 内核准备数据并拷贝到用户空间，此时进程阻塞。
+3. 进程解除阻塞。
+
+特点是用户进程在内核准备数据和数据从内核拷贝到进程内存中这两个过程中处于阻塞等待状态。
+
+### NIO
+
+1. 用户进程向操作系统内核发起IO请求，如果数据没有准备好，会返回一个error
+2. 用户进程得到返回结果，说明数据没有准备好，可以处理其他任务，一段时间后再次请求，直到数据返回。
+
+特点是用户进程在内核准备数据时需要不断主动询问数据准备好没有。
+
+### IO多路复用
+
+实际上是用select poll epoll监听多个io对象，有数据时就通知用户进程。好处是单个进程可以处理多个连接，而不是单个连接处理的更快。
+
+1. 用户进程调用select，内核监听所有select负责的socket；
+2. 当任何一个socket的数据准备好了，select就返回
+3. 此时用户进程调用read操作，将数据从内核拷贝到用户进程。
+
+### AIO
+
+1. 用户进程发起IO请求后立刻去做其他事情
+2. 内核等待数据准备完成将数据拷贝到用户内存，然后向用户进程发送一个signal，告诉他read操作完成了。
 
 
 
@@ -209,7 +243,6 @@ public class PoolServer {
         this.selector = Selector.open();
         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
         System.out.println("服务器启动成功");
-
 
     }
     public void listen() throws IOException {
@@ -448,7 +481,7 @@ Reactor模式基于事件驱动，采用多路复用将事件分发给相应的H
                     // (非必备)打印日志
                     .handler(new LoggingHandler(LogLevel.INFO))
                     // 4.指定 IO 模型
-                    .channel(NioServerSocketChannel.class)
+                .channel(NioServerSocketChannel.class)
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         public void initChannel(SocketChannel ch) {
@@ -475,18 +508,29 @@ Reactor模式基于事件驱动，采用多路复用将事件分发给相应的H
 5. 通过.childHandler()给启动类创建一个ChannelInitializer，指定了业务处理逻辑HelloServerHandler对象
 6. 调用bind方法绑定端口
 
-### TCP粘包/拆包
+### [TCP粘包/拆包及解决](https://my.oschina.net/u/3837147/blog/3023833)
 
-基于TCP发送数据时，出现多个字符串粘在一起或者一个字符串被拆开的情况。
+基于TCP发送数据时，出现多个字符串粘在一起或者一个字符串被拆开的情况。这是因为TCP有个缓存区，如果一个数据包发送的数据量太小没有达到缓存区大小，TCP会将多个数据包合并为一个发送，如果一个数据包太大，超过了缓冲区的大小，TCP就会拆分成多个发送。
 
-解决：
+解决方案：
 
-1. 使用netty自带的解码器
+1. 发送数据包的时候每个包都使用固定长度，不足就使用空格补全。
+2. 发送端在每个数据包的末尾加固定的分隔符，接收端通过识别分隔符来恢复完整的数据包。
+3. 将消息分为消息头和消息体两部分，消息头保存消息长度，根据长度信息读取完整的消息内容。
+4. 通过自定义协议进行粘包拆包处理。
+
+
+
+#### netty提供的解决方案：
+
+1. 使用netty自带的解码器（netty只提供了解码器，编码器需要自己实现）
+
+    对于通过分隔符进行粘包和拆包问题的处理，Netty提供了两个编解码的类，`LineBasedFrameDecoder`和`DelimiterBasedFrameDecoder`。
 
    - **`LineBasedFrameDecoder`** : 发送端发送数据包的时候，每个数据包之间以换行符作为分隔，`LineBasedFrameDecoder` 的工作原理是它依次遍历 `ByteBuf` 中的可读字节，判断是否有换行符，然后进行相应的截取。
-   - **`DelimiterBasedFrameDecoder`** : 可以自定义分隔符解码器，**`LineBasedFrameDecoder`** 实际上是一种特殊的 `DelimiterBasedFrameDecoder` 解码器。
-   - **`FixedLengthFrameDecoder`**: 固定长度解码器，它能够按照指定的长度对消息进行相应的拆包。
-   - **`LengthFieldBasedFrameDecoder`**
+   - **`DelimiterBasedFrameDecoder`** : 可以自定义分隔符的解码器，**`LineBasedFrameDecoder`** 实际上是一种特殊的 `DelimiterBasedFrameDecoder` 解码器。
+   - **`FixedLengthFrameDecoder`**: 固定长度解码器，它会一次读取指定长度的消息，能够按照指定的长度对消息进行相应的拆包。
+   - **`LengthFieldBasedFrameDecoder`**： 这里`LengthFieldBasedFrameDecoder`与`LengthFieldPrepender`需要配合起来使用，其实本质上来讲，这两者一个是解码，一个是编码的关系。它们处理粘拆包的主要思想是在生成的数据包中添加一个长度字段，用于记录当前数据包的长度。
 
 2. 自定义序列化编解码器
 

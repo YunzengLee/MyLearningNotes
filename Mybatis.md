@@ -553,7 +553,7 @@ public static void main(String[] args){
 
 #### 2 深入parameterType
 
-1. 传递简单类型
+1. 传递简单类型（如Integer, String）
 
 2. 传递pojo对象（就是数据库表的实体类对象）
 
@@ -1186,7 +1186,7 @@ xml文件中，可以将一些重复的sql语句定义一下。sql标签与selec
 
 #### 3 一对多查询
 
-#### 需求：
+需求：
 
 查询用户时附带查询该用户的所有账户信息
 

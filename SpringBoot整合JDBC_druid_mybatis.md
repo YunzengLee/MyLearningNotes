@@ -198,9 +198,43 @@ public class DruidCOnfig{
 
 # 整合Mybatis
 
+1. 依赖 mybatis和mysql驱动以及web依赖
+
+2. 配置 mybatis配置实体类位置和xml文件位置，以及spring.datasource中关于数据库的驱动、用户名、密码、url信息
+
+3. pojo 实体类
+
+4. mapper接口 加@Repository注解
+
+5. xml文件 
+
+   ```xml
+   <mapper namspace="com.XxMapper 接口文件全限定类名">
+   	<select id="接口中的方法名" parameterType="" resultType="">
+       sql 语句
+       </select>
+   </mapper>
+   ```
+
+   
+
+6. 调用 通过@Autowired导入Mapper接口
+
+   ```java
+   @Autowired
+   XxMapper xxMapper;
+   
+   //使用
+   xxMapper.方法名();
+   ```
+
+   
+
+
+
 - 新建项目，添加web依赖，jdbc依赖，mysql驱动依赖
 
-- 在pom文件中添加mybatis依赖：mybatis-spring-boot-starter
+- 在pom文件中添加mybatis依赖：mybatis-spring-boot-starter 注：mybatis封装了jdbc，因此不需要jdbc依赖
 
 - 配置数据库信息：application.yml
 
