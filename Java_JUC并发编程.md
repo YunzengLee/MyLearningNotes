@@ -177,7 +177,9 @@ public enum State {
 
    sleep：可以在任何地方睡
 
-4. 是否需要捕获异常
+4. sleep必须传入时间参数，wait不一定。
+
+5. 是否需要捕获异常
 
    wait不需要，sleep必须要捕获异常，因为可能发生超时等待的情况
 
@@ -212,13 +214,14 @@ java.util.concurrent.locks
 ## synchronized与Lock的区别
 
 1. synchronized是内置的java关键字，Lock是一个java类
-2. synchronized无法判断锁的状态，Lock可以判断是否拿到了锁
-3. synchronized会自动释放锁，Lock必须手动释放，如果不释放，就可能会死锁
-4. synchronized：线程1获得锁且阻塞的话，线程2会一直等；Lock就不一定会等待下去，Lock有个方法tryLock()（tryLock：可以传入参数设置等待锁的时间）
-5. synchronized是可重入锁，非公平锁，不可以中断；Lock，可重入锁，可以判断锁，非公平（可以自己设置）（什么叫不可中断？可以判断锁？）
-6. synchronized：适合锁少量的代码同步问题，Lock适合锁大量的代码。（why？）
+2. synchronized基于JVM实现，Lock基于API层面实现
+3. synchronized无法判断锁的状态，Lock可以判断是否拿到了锁
+4. synchronized会自动释放锁，Lock必须手动释放，如果不释放，就可能会死锁
+5. synchronized：线程1获得锁且阻塞的话，线程2会一直等；Lock就不一定会等待下去，Lock有个方法tryLock()（tryLock：可以传入参数设置等待锁的时间）
+6. synchronized是可重入锁，非公平锁，不可以中断；Lock，可重入锁，可以中断锁的等待，非公平（可以自己设置）
+7. synchronized：适合锁少量的代码同步问题，Lock适合锁大量的代码。（why？）
 
-
+区别在于：中断等待锁，非公平锁设置，精准唤醒，判断是否拿到了锁，关键字和类
 
 > 锁是什么，如何判断锁的是谁
 
@@ -461,7 +464,7 @@ class Data3{
             System.out.println(Thread.currentThread().getName()+"---BBBBB");
             num=3;
             //唤醒指定的线程
-            condition3.signal();  //为什么condition2对应B呢
+            condition3.signal();  //为什么condition3对应C呢
 
         }catch (Exception e){
             e.printStackTrace();
@@ -480,7 +483,7 @@ class Data3{
             System.out.println(Thread.currentThread().getName()+"----CCCCC");
             num = 1;
             //唤醒指定的线程
-            condition1.signal();  //为什么condition2对应B呢
+            condition1.signal();  //为什么condition1对应A呢
 
         }catch (Exception e){
             e.printStackTrace();
@@ -493,8 +496,8 @@ class Data3{
 
 ```
 
-- 解疑：代码中的资源类中的三个condition，分别代表三个条件，或者代表三个标记。.await()方法可以是当前线程阻塞，而conditionx.signal()方法可以唤醒等待该条件的其中一个线程（conditionx.siganlAll()是唤醒所有线程，不必是等待该条件的）
-- 如果某个地方执行了condition1.await()那么当前线程就会在此处阻塞，当其他线程在其他地方执行了condition1.siganle()时，就会唤醒因condition1.await()阻塞的线程在await处继续向下执行，所以condition有点类似一个标记。
+- 解疑：代码中的资源类中的三个condition，分别代表三个条件，或者代表三个标记。.await()方法将会将对应的condition“失效”，就可以使运行到await方法的线程就需要等该条件生效才能继续往下运行，等待其他线程中将该条件生效。而conditionx.signal()方法可以精准地使某一个条件“生效”，这样的等待该条件的线程可以继续运行
+- 可以理解为，所有线程都是在执行的，只是有的线程将某一个条件condition对象失效了，该线程就暂时停止，直到另一个线程中将该条件生效，该线程才继续运行。
 
 # 5 8锁现象
 
@@ -743,7 +746,7 @@ class Phone4{
 
 
 
-# 6 集合类不安全
+# 6 不安全的集合类
 
 ## 1 ArrayList
 
@@ -958,11 +961,60 @@ public class CountDownLatch {
 原理：
 
 - countDownLatch.countDown();//-1操作
-- countDownLatch.await();//等待计数器归零，然后再继续向下执行
+- countDownLatch.await();//在技术起点 值大于0之前，这个方法会使当前线程阻塞，等待计数器归零，然后再继续向下执行
 
 每次有线程调用countDown()，数量就-1，假设计数器归零，countDownLatch.await()就会被唤醒，继续执行。
 
+第二个例子：
+
+```java
+import java.util.concurrent.CountDownLatch;
+public class cD implements Runnable{
+  private   CountDownLatch begin ;
+  private   CountDownLatch end;
+  private  int s;
+  public cD(CountDownLatch begin,CountDownLatch end){
+	  this.begin=begin;
+	  this.end=end;
+	  this.s=10;
+  }
+  @Override  
+  public synchronized void run(){  //线程同步用了synchronized否则无法保证s的正确性
+	try{                       //注意：await用在synchronized可能导致死锁，如果换成CyclicBarrier类会导致死锁
+		begin.await();    //等待begin统一
+		System.out.println(s+" 次");
+		s--;
+		//do something
+	}
+	catch(Exception e){
+		e.printStackTrace();
+	}
+	finally{
+		end.countDown();
+	} 
+  }
+  public static void main(String[] args) throws Exception {
+	  CountDownLatch begin = new CountDownLatch(1);
+	  CountDownLatch end = new CountDownLatch(10);
+	  cD juc=new cD(begin,end);   
+	  for(int j=0;j<10;j++){
+		 new Thread(juc).start();   //开启10个线程，10个线程分别倒数1次，并让end减一次
+	  }
+	  //开始倒数计时，开启begin的countDown()方法
+	  System.out.println("开始倒数计数!。。。10次");
+	  begin.countDown();  //begin减到0，则开始10个线程里面的await()方法后面的程序
+	  end.await(); 		  //阻塞程序，知道end减为0
+	  System.out.println("倒数结束。。。后面的程序开始运行");
+	  //do others
+  }
+}
+```
+
+
+
 ## CyclicBarrier
+
+该类从字面理解为循环屏障，它可以协同多个线程，让多个线程在这个屏障前等待，直到所有线程都到达了这个屏障时，每个线程再继续执行各自后面的操作。假如每个线程各有一个await，任何一个线程运行到await方法时就阻塞，直到最后一个线程运行到await时才同时返回。和之前的CountDownLatch相比，它只有await方法，而CountDownLatch是使用countDown()方法将计数器减到0，它创建的参数就是countDown的数量；CyclicBarrier创建时的int参数是await的数量。
 
 简单理解为：加法计数器
 
@@ -1000,6 +1052,42 @@ public class CyclicBarrierDemo {
 }
 
 ```
+
+第二个例子：
+
+```java
+import java.util.concurrent.CyclicBarrier;
+public class cD implements Runnable{
+  private   CyclicBarrier end;
+  private  int s;
+  public cD(CyclicBarrier end,int i){
+	  this.end=end;
+	  s=i;
+  }
+  @Override  
+  public  void run(){  //线程同步用了synchronized否则无法保证s的正确性
+	try{
+		System.out.println(s+"队准备完毕");
+		s--;
+		end.await(); 
+	}
+	catch(Exception e){
+		e.printStackTrace();
+	}
+  }
+  public static void main(String[] args) throws Exception {
+	  CyclicBarrier end = new CyclicBarrier(11);  //await为10+1=11个
+	  for(int j=0;j<10;j++){
+		 new Thread(new cD(end,j)).start();   //开启10个线程
+	  }
+	  end.await(); 		  //阻塞程序，直到10个子线程全部运行到await处
+	  System.out.println("\n10队全部准备结束。。。后面的程序开始运行");
+	  //do others
+  }
+}
+```
+
+
 
 ## Semaphore
 
@@ -1349,7 +1437,6 @@ public class SynchronizedBlockingQueue {
 
 - 降低资源消耗（创建和销毁十分浪费资源）
 - 提高响应速度（节省了创建时间）
-- 提高响应速度
 - 方便管理
 
 线程复用，可以控制最大并发数，管理线程
@@ -1504,10 +1591,10 @@ public class Demo01 {
 四个拒绝策略：
 
 - ```java
-  new ThreadPoolExecutor.AbortPolicy();//抛出异常
-  new ThreadPoolExecutor.CallerRunsPolicy();//哪来的回哪去，哪个线程交给线程池的请求，就交由哪个线程处理。
+  new ThreadPoolExecutor.AbortPolicy();//丢弃任务，抛出异常
+  new ThreadPoolExecutor.CallerRunsPolicy();//哪来的回哪去，将任务交给调用线程池的线程处理，如果该线程已终止，就丢弃任务。
   new ThreadPoolExecutor.DiscardPolicy();//不抛出异常，直接丢掉任务
-  new ThreadPoolExecutor.DiscardOldestPolicy();//尝试获取最早的线程，如果失败就丢掉任务，不抛出异常
+  new ThreadPoolExecutor.DiscardOldestPolicy();//放弃队列中最早的未处理请求，然后重试execute，如果执行程序已关闭，则丢弃任务，不抛出异常。
   ```
 
 ## CPU密集型和IO密集型
@@ -1842,6 +1929,20 @@ JMM：java内存模型，不存在的东西，一种概念，一种约定。
 2. 线程加锁前：必须读取主内存中的最新值到工作内存中
 3. 加锁跟解锁是同一把锁
 
+### 什么是JMM
+
+JMM屏蔽掉不同硬件和操作系统对内存访问的差异，实现让java程序在各种平台下都能达到一致的并发效果。
+
+JMM规定所有变量都存储在主内存中，（包括实例变量，静态变量）但不包括局部变量和方法参数。线程自己的工作内存保存了该线程用到的变量和主内存副本拷贝，线程对变量的操作都是在工作内存中进行，不能直接读写主内存的变量。
+
+不同线程也无法访问对方工作内存中的变量。线程之间的变量值的传递均需要通过主内存来完成。
+
+### JMM定义了什么
+
+JMM实际上是围绕三个特征建立起来的。分别是原子性、可见性、有序性。这三个特征可谓是整个java开发的基础。
+
+
+
 ## **8种操作：**
 
 每个线程有自己的执行引擎，自己的工作内存。线程在操作共享资源时，有8个操作，分为4组：
@@ -1849,7 +1950,7 @@ JMM：java内存模型，不存在的东西，一种概念，一种约定。
 - 加锁，解锁
 - 从主内存read到缓冲区，再load进工作内存（相当于从主内存到工作内存复制一份）
 - 执行引擎use工作内存中的共享变量，操作后再assign回工作内存
-- 工作内存将变量write到缓冲区，再store到主内存
+- 工作内存将变量store到缓冲区，再write到主内存
 
 
 
@@ -2284,7 +2385,7 @@ public class CASDemo {
 
 公平锁：非常公平，不能插队，必须先来后到，获取不到锁的时候，会自动加入队列，等待线程释放后，队列的第一个线程获取锁
 
-非公平锁：获取不到锁的时候，会自动加入队列，等待线程释放锁后所有等待的线程同时去竞争。不公平，可以插队（比如两个线程一个耗时长，一个耗时短，那么就需要运行耗时短的先拿到锁执行，因此默认是非公平锁）
+非公平锁：首先是检查并设置锁的状态，这种方式会出现即使队列中有等待的线程，**但是新的线程仍然会与排队线程中的队头线程竞争（但是排队的线程是先来先服务的），所以新的线程可能会抢占已经在排队的线程的锁，这样就无法保证先来先服务，但是已经等待的线程们是仍然保证先来先服务的。**
 
 ```java
 Lock lock = new ReentantLock();//默认非公平锁
@@ -2297,11 +2398,13 @@ Lock lock = new ReentantLock(true);//改为公平锁
 
 ## 2 可重入锁
 
-可重入锁：同一个线程可以反复获取锁多次，然后需要释放多次。
+[重要易懂的补充材料](https://www.cnblogs.com/gxyandwmm/p/9387833.html)
+
+可重入锁：该锁支持同一个线程对同一资源的重复加锁。也就是一个线程获得锁之后可以再次获得该锁。
+
+同一个线程可以反复获取同一把锁多次，然后需要释放多次。
 
 所有的锁都是可重入锁，也叫递归锁
-
-好比一个院子，拿到了大门的锁就自动获得了里面所有屋子的锁，这就是可重入锁。
 
 ### Lock版：
 
